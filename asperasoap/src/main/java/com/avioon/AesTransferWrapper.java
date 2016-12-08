@@ -3,6 +3,9 @@ package com.avioon;
 
 
 import aspera.central._2012._10.transfer201210.*;
+import aspera.xml.faspsessionnet._2009._11.types.FileTransferFilter;
+import aspera.xml.faspsessionnet._2009._11.types.GetInfoRequest;
+import aspera.xml.faspsessionnet._2009._11.types.GetInfoResponse;
 import aspera.xml.iscptransfernet._2006._04.types.*;
 import aspera.xml.jobnet._2006._01.types.SubmitRequest;
 import aspera.xml.jobnet._2006._01.types.SubmitResponse;
@@ -43,6 +46,9 @@ public class AesTransferWrapper {
     private LocalLocationType localLocationType = new LocalLocationType();
     private AesOrderType aesOrderType = new AesOrderType();
     SubmitResponse submitResponse = new SubmitResponse();
+    GetInfoRequest getInfoRequest = new GetInfoRequest();
+    GetInfoResponse getInfoResponse = new GetInfoResponse();
+    FASPSoap faspSoap = null;
 ///////
 
     public AesTransferWrapper(String requestType, String operationType, String address, String cookie, int remotePort,
@@ -66,23 +72,23 @@ public class AesTransferWrapper {
             JobSubmissionErrorFault, JobTypeNotFoundFault, IOException {
         secondVersion();
 
-//        try {
-////            AesTransfer aesTransfer = submit();
-//            waitOneCyle();
-////            AesTransferItem aesTransferItem = getTransferItem(aesTransfer.getId());
-//            int progress = 0;
-//
-//            AesTransferStatus status = aesTransferItem.getStatus();
-//            while ((status == AesTransferStatus.running || status == AesTransferStatus.waiting || status ==
-//                    AesTransferStatus.paused)) {
-//                if (isAbort()) {
+        try {
+//            AesTransfer aesTransfer = submit();
+            waitOneCyle();
+//            AesTransferItem aesTransferItem = getTransferItem(aesTransfer.getId());
+            int progress = 0;
+
+            AesTransferStatus status = AesTransferStatus.valueOf(requestStatus ());
+            requestStatus ();
+            while ((status == AesTransferStatus.running || status == AesTransferStatus.waiting || status ==
+                    AesTransferStatus.paused)) {
+                if (isAbort()) {
 //                    abortTransfer(aesTransfer.getId());
-//                    break;
-//                }
-//                waitOneCyle();
-//                aesTransferItem = getTransferItem(aesTransfer.getId());
-//                status = aesTransferItem.getStatus();
-//                progress = aesTransferItem.getProgress();
+                    break;
+                }
+                waitOneCyle();
+                status = AesTransferStatus.valueOf(requestStatus ());
+//              progress = aesTransferItem.getProgress();
 //                updateStatus(progress);
 //            }
 //
@@ -97,10 +103,10 @@ public class AesTransferWrapper {
 //            } else {
 //                throw new IOException(String.format("Failed to transfer file %s with AES. Status is %s.",
 //                        sourceFile, status));
-//            }
-//        } catch (AuthenticationException e) {
-//            throw new IOException(String.format("Failed to authenticate user at AES. Error %s.", e.getMessage()));
-//        }
+            }
+        } catch (Exception e) {
+            throw new IOException(String.format("Failed to authenticate user at AES. Error %s.", e.getMessage()));
+        }
     }
 
 
@@ -141,13 +147,20 @@ public class AesTransferWrapper {
         }
     }
 
+    public boolean isAbort() {
+        return false;
+    }
+
 
 ///////temporary method
-
+    public int getProgress() {
+//            return (int) (((float) getInfoResponse.getInfoResult().getSessionInfo().get(0).getBytesTransferred() / files[0].getSize()) * 100);
+        return 0;
+    }
     private void secondVersion() throws FilterChangedErrorFault, JobFormatInvalidFault,
             JobSubmissionErrorFault, JobTypeNotFoundFault, IOException {
         Transfer201210 transfer201210 = new Transfer201210();
-        FASPSoap faspSoap = transfer201210.getTransfer201210Port();
+        faspSoap = transfer201210.getTransfer201210Port();
         BindingProvider bindingProvider = (BindingProvider) faspSoap;
         bindingProvider.getRequestContext().put(BindingProvider.ENDPOINT_ADDRESS_PROPERTY, "http://10.10.0.62:40001/services/soap/Transfer-201210");
         callMethod(faspSoap);
@@ -160,10 +173,13 @@ public class AesTransferWrapper {
         submitResponse = faspSoap.submit(submitRequest);
     }
 
-    private void requestStatus (){
-        submitResponse.getJobResult().getID();
-//        FASPSoap faspSoap = transfer201210.getTransfer201210Port();
-
+    private String requestStatus () throws  FilterChangedErrorFault{
+        FileTransferFilter fileTransferFilter = new FileTransferFilter();
+        fileTransferFilter.getJobId().add(submitResponse.getJobResult().getID());
+        getInfoRequest.setFileTransferFilter(fileTransferFilter);
+        //submit request
+        getInfoResponse = faspSoap.getInfo(getInfoRequest);
+        return getInfoResponse.getInfoResult().getSessionInfo().get(0).getStatus();
     }
 
     private String objectToString() throws IOException{
