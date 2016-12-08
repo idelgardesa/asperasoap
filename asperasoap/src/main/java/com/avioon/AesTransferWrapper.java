@@ -1,7 +1,6 @@
 package com.avioon;
 
 
-
 import aspera.central._2012._10.transfer201210.*;
 import aspera.xml.faspsessionnet._2009._11.types.FileTransferFilter;
 import aspera.xml.faspsessionnet._2009._11.types.GetInfoRequest;
@@ -9,6 +8,7 @@ import aspera.xml.faspsessionnet._2009._11.types.GetInfoResponse;
 import aspera.xml.iscptransfernet._2006._04.types.*;
 import aspera.xml.jobnet._2006._01.types.SubmitRequest;
 import aspera.xml.jobnet._2006._01.types.SubmitResponse;
+import com.sun.xml.internal.ws.policy.privateutil.PolicyUtils;
 
 import javax.xml.bind.JAXBContext;
 import javax.xml.bind.JAXBException;
@@ -18,42 +18,34 @@ import java.io.IOException;
 import java.io.StringWriter;
 import java.net.MalformedURLException;
 
-public class AesTransferWrapper {
+public class AesTransferWrapper extends TransferHandler implements FsAction {
 
     private static final long WAIT = 5000;
     private static final String TRANSFER_URL = "/304849/I-Transcoding_01/";
-////// temporary attributes
-    String requestType;
-    String operationType;
-    String address;
-    String cookie;
-    int    remotePort;
-    String remoteUserName;
-    String authenticationMethod;
-    String keyPath;
-    String localUserName;
-    String localPassword;
-    String localFilePath;
+    private static final int FILES_NUMBER = 0;
+
+    private String requestType;
+    private String operationType;
+    private String address;
+    private String cookie;
+    private int remotePort;
+    private String remoteUserName;
+    private String authenticationMethod;
+    private String keyPath;
+    private String localFilePath;
 
 
     private SubmitRequest submitRequest = new SubmitRequest();
-    private ApplicationDataType applicationDataType = new ApplicationDataType();
-    private SystemType systemType = new SystemType();
-    private ArrayOfMethods arrayOfMethods = new ArrayOfMethods();
-    private AuthenticationType authenticationType = new AuthenticationType();
-    private ArrayOfPaths arrayOfPaths = new ArrayOfPaths();
-    private RemoteLocationType remoteLocationType =  new RemoteLocationType();
-    private LocalLocationType localLocationType = new LocalLocationType();
-    private AesOrderType aesOrderType = new AesOrderType();
-    SubmitResponse submitResponse = new SubmitResponse();
-    GetInfoRequest getInfoRequest = new GetInfoRequest();
-    GetInfoResponse getInfoResponse = new GetInfoResponse();
-    FASPSoap faspSoap = null;
-///////
+    private SubmitResponse submitResponse = new SubmitResponse();
+    private FASPSoap faspSoap = null;
+
+    //remove when get the xml function
+    AesOrderType aesOrderType = new AesOrderType();
+    private int abortLoops = 0;
+    //remove when get the xml function
 
     public AesTransferWrapper(String requestType, String operationType, String address, String cookie, int remotePort,
-                              String remoteUserName, String authenticationMethod, String keyPath,
-                              String localUserName, String localPassword,  String localFilePath){
+                              String remoteUserName, String authenticationMethod, String keyPath, String localFilePath){
         this.requestType = requestType;
         this.operationType = operationType;
         this.address = address;
@@ -62,47 +54,44 @@ public class AesTransferWrapper {
         this.remoteUserName = remoteUserName;
         this.authenticationMethod = authenticationMethod;
         this.keyPath  =  keyPath;
-        this.localUserName = localUserName;
-        this.localPassword = localPassword;
         this.localFilePath = localFilePath;
     }
 
 
-    public void doAction() throws MalformedURLException, FilterChangedErrorFault, JobFormatInvalidFault,
-            JobSubmissionErrorFault, JobTypeNotFoundFault, IOException {
-        secondVersion();
+    public void doAction() throws IOException {
 
         try {
-//            AesTransfer aesTransfer = submit();
             waitOneCyle();
-//            AesTransferItem aesTransferItem = getTransferItem(aesTransfer.getId());
-            int progress = 0;
+            createService();
+            submit();
 
-            AesTransferStatus status = AesTransferStatus.valueOf(requestStatus ());
-            requestStatus ();
+            AesTransferStatus status = AesTransferStatus.valueOf(requestStatus());
+
             while ((status == AesTransferStatus.running || status == AesTransferStatus.waiting || status ==
                     AesTransferStatus.paused)) {
+                //remove the comment to test the abort
+                //abortLoops();
+                //remove the comment to test the abort
                 if (isAbort()) {
-//                    abortTransfer(aesTransfer.getId());
+                    abortTransfer();
                     break;
                 }
                 waitOneCyle();
                 status = AesTransferStatus.valueOf(requestStatus ());
-//              progress = aesTransferItem.getProgress();
-//                updateStatus(progress);
-//            }
-//
-//            if (status == AesTransferStatus.completed) {
-//                success(100);
-//            } else if (status == AesTransferStatus.cancelled || isAbort()) {
-//                abort(progress);
-//            } else if (status == AesTransferStatus.failed) {
-//                throw new IOException(String.format("Failed to transfer file %s with AES. Error: '%s' " +
-//                                "(Error code: '%s')",
-//                        sourceFile, aesTransferItem.getError_desc(), aesTransferItem.getError_code()));
-//            } else {
-//                throw new IOException(String.format("Failed to transfer file %s with AES. Status is %s.",
-//                        sourceFile, status));
+//                int progress = getProgress();
+            }
+
+            if (status == AesTransferStatus.completed) {
+                success(100);
+            } else if (status == AesTransferStatus.cancelled || isAbort()) {
+                abortTransfer();
+            } else if (status == AesTransferStatus.failed) {
+                throw new IOException(String.format("Failed to transfer file %s with AES. Error: '%s' " +
+                                "(Error code: '%s')",
+                        localFilePath));
+            } else {
+                throw new IOException(String.format("Failed to transfer file %s with AES. Status is %s.",
+                        localFilePath, status));
             }
         } catch (Exception e) {
             throw new IOException(String.format("Failed to authenticate user at AES. Error %s.", e.getMessage()));
@@ -110,26 +99,36 @@ public class AesTransferWrapper {
     }
 
 
+    private void createSubmitRequest() throws IOException{
 
-    private void createSubmitRequest()throws IOException{
-
+        AesOrderType aesOrderType = new AesOrderType();
+        ApplicationDataType applicationDataType = new ApplicationDataType();
         applicationDataType.setCookie(cookie);
+
+        SystemType systemType = new SystemType();
         systemType.setAddress(address);
         systemType.setPort(remotePort);
         systemType.setUserName(remoteUserName);
+
+        ArrayOfMethods arrayOfMethods = new ArrayOfMethods();
         arrayOfMethods.getMethod().add(authenticationMethod);
+
+        AuthenticationType authenticationType = new AuthenticationType();
         authenticationType.setKeyPath(keyPath);
         authenticationType.setMethods(arrayOfMethods);
 
         ArrayOfPaths arrayOfPathsRemote = new ArrayOfPaths();
         arrayOfPathsRemote.getPath().add(TRANSFER_URL);
 
+        RemoteLocationType remoteLocationType =  new RemoteLocationType();
         remoteLocationType.setSystem(systemType);
         remoteLocationType.setAuthentication(authenticationType);
         remoteLocationType.setFiles(arrayOfPathsRemote);
 
         ArrayOfPaths arrayOfPathsLocal = new ArrayOfPaths();
         arrayOfPathsLocal.getPath().add(localFilePath);
+
+        LocalLocationType localLocationType = new LocalLocationType();
         localLocationType.setFiles(arrayOfPathsLocal);
 
         aesOrderType.setOperation(operationType);
@@ -147,26 +146,15 @@ public class AesTransferWrapper {
         }
     }
 
-    public boolean isAbort() {
-        return false;
-    }
-
-
-///////temporary method
-    public int getProgress() {
-//            return (int) (((float) getInfoResponse.getInfoResult().getSessionInfo().get(0).getBytesTransferred() / files[0].getSize()) * 100);
-        return 0;
-    }
-    private void secondVersion() throws FilterChangedErrorFault, JobFormatInvalidFault,
-            JobSubmissionErrorFault, JobTypeNotFoundFault, IOException {
+    private void createService() {
         Transfer201210 transfer201210 = new Transfer201210();
         faspSoap = transfer201210.getTransfer201210Port();
         BindingProvider bindingProvider = (BindingProvider) faspSoap;
-        bindingProvider.getRequestContext().put(BindingProvider.ENDPOINT_ADDRESS_PROPERTY, "http://10.10.0.62:40001/services/soap/Transfer-201210");
-        callMethod(faspSoap);
+        bindingProvider.getRequestContext().put(BindingProvider.ENDPOINT_ADDRESS_PROPERTY,
+                "http://10.10.0.62:40001/services/soap/Transfer-201210");
     }
 
-    private void callMethod(FASPSoap faspSoap) throws FilterChangedErrorFault, JobFormatInvalidFault,
+    private void submit() throws FilterChangedErrorFault, JobFormatInvalidFault,
             JobSubmissionErrorFault, JobTypeNotFoundFault , IOException{
         createSubmitRequest();
         submitRequest.setType(requestType);
@@ -174,12 +162,41 @@ public class AesTransferWrapper {
     }
 
     private String requestStatus () throws  FilterChangedErrorFault{
+        GetInfoRequest getInfoRequest = new GetInfoRequest();
+        GetInfoResponse getInfoResponse = new GetInfoResponse();
         FileTransferFilter fileTransferFilter = new FileTransferFilter();
         fileTransferFilter.getJobId().add(submitResponse.getJobResult().getID());
+
         getInfoRequest.setFileTransferFilter(fileTransferFilter);
-        //submit request
         getInfoResponse = faspSoap.getInfo(getInfoRequest);
-        return getInfoResponse.getInfoResult().getSessionInfo().get(0).getStatus();
+        return getInfoResponse.getInfoResult().getSessionInfo().get(FILES_NUMBER).getStatus();
+    }
+
+
+    private void abortTransfer() throws JobNotFoundFault{
+        CancelRequest cancelRequest = new CancelRequest();
+        cancelRequest.setJobID(submitResponse.getJobResult().getID());
+        faspSoap.cancelJob(cancelRequest);
+    }
+
+
+
+
+
+//remove later - used for testing-----------------------------------------------
+    public boolean isAbort() {
+        if(abortLoops==10){
+            return true;
+        }else{
+            return false;
+        }
+    }
+    protected  void abortLoops(){
+        abortLoops++;
+    }
+    public int getProgress() {
+        //return (int) (getInfoResponse.getInfoResult().getSessionInfo().get(FILES_NUMBER).getBytesTransferred().floatValue() );
+        return 0;
     }
 
     private String objectToString() throws IOException{
@@ -195,5 +212,4 @@ public class AesTransferWrapper {
         }
         return sw.toString();
     }
-///////temporary method
 }

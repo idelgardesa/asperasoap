@@ -25,29 +25,13 @@ public class App
                 "sshacs",
                 "Public Key",
                 "/home/aspera/.ssh/aspera",
-                "root",
-                "init1111",
                 "/home/aspera/Schreibtisch/transfers/transfer1.mxf"
         );
-
-
-
-
-
-
 
         try {
             transferWrapper.doAction();
         } catch (MalformedURLException e) {
             e.printStackTrace();
-        } catch (FilterChangedErrorFault filterChangedErrorFault) {
-            filterChangedErrorFault.printStackTrace();
-        } catch (JobSubmissionErrorFault jobSubmissionErrorFault) {
-            jobSubmissionErrorFault.printStackTrace();
-        } catch (JobFormatInvalidFault jobFormatInvalidFault) {
-            jobFormatInvalidFault.printStackTrace();
-        } catch (JobTypeNotFoundFault jobTypeNotFoundFault) {
-            jobTypeNotFoundFault.printStackTrace();
         } catch (IOException ioException) {
             ioException.printStackTrace();
         }
