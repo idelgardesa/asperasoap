@@ -8,22 +8,24 @@ import aspera.xml.faspsessionnet._2009._11.types.GetInfoResponse;
 import aspera.xml.iscptransfernet._2006._04.types.*;
 import aspera.xml.jobnet._2006._01.types.SubmitRequest;
 import aspera.xml.jobnet._2006._01.types.SubmitResponse;
-import com.sun.xml.internal.ws.policy.privateutil.PolicyUtils;
 
+import org.w3c.dom.Document;
 import javax.xml.bind.JAXBContext;
 import javax.xml.bind.JAXBException;
 import javax.xml.bind.Marshaller;
 import javax.xml.ws.BindingProvider;
 import java.io.IOException;
+import java.io.Serializable;
 import java.io.StringWriter;
-import java.net.MalformedURLException;
 
 public class AesTransferWrapper extends TransferHandler implements FsAction {
 
     private static final long WAIT = 5000;
     private static final String TRANSFER_URL = "/304849/I-Transcoding_01/";
     private static final int FILES_NUMBER = 0;
+    private static final String TRANSFER_NAMESPACE = "http://10.10.0.62:40001/services/soap/Transfer-201210";
 
+    private String transferJobId ;
     private String requestType;
     private String operationType;
     private String address;
@@ -36,16 +38,14 @@ public class AesTransferWrapper extends TransferHandler implements FsAction {
 
 
     private SubmitRequest submitRequest = new SubmitRequest();
-    private SubmitResponse submitResponse = new SubmitResponse();
     private FASPSoap faspSoap = null;
 
     //remove when get the xml function
-    AesOrderType aesOrderType = new AesOrderType();
     private int abortLoops = 0;
     //remove when get the xml function
 
     public AesTransferWrapper(String requestType, String operationType, String address, String cookie, int remotePort,
-                              String remoteUserName, String authenticationMethod, String keyPath, String localFilePath){
+                              String remoteUserName, String authenticationMethod, String keyPath, String localFilePath) {
         this.requestType = requestType;
         this.operationType = operationType;
         this.address = address;
@@ -53,7 +53,7 @@ public class AesTransferWrapper extends TransferHandler implements FsAction {
         this.remotePort = remotePort;
         this.remoteUserName = remoteUserName;
         this.authenticationMethod = authenticationMethod;
-        this.keyPath  =  keyPath;
+        this.keyPath = keyPath;
         this.localFilePath = localFilePath;
     }
 
@@ -61,9 +61,8 @@ public class AesTransferWrapper extends TransferHandler implements FsAction {
     public void doAction() throws IOException {
 
         try {
-            waitOneCyle();
             createService();
-            submit();
+            submitTransferRequest();
 
             AesTransferStatus status = AesTransferStatus.valueOf(requestStatus());
 
@@ -77,7 +76,7 @@ public class AesTransferWrapper extends TransferHandler implements FsAction {
                     break;
                 }
                 waitOneCyle();
-                status = AesTransferStatus.valueOf(requestStatus ());
+                status = AesTransferStatus.valueOf(requestStatus());
 //                int progress = getProgress();
             }
 
@@ -99,7 +98,7 @@ public class AesTransferWrapper extends TransferHandler implements FsAction {
     }
 
 
-    private void createSubmitRequest() throws IOException{
+    private void createSubmitRequest() throws IOException {
 
         AesOrderType aesOrderType = new AesOrderType();
         ApplicationDataType applicationDataType = new ApplicationDataType();
@@ -120,7 +119,7 @@ public class AesTransferWrapper extends TransferHandler implements FsAction {
         ArrayOfPaths arrayOfPathsRemote = new ArrayOfPaths();
         arrayOfPathsRemote.getPath().add(TRANSFER_URL);
 
-        RemoteLocationType remoteLocationType =  new RemoteLocationType();
+        RemoteLocationType remoteLocationType = new RemoteLocationType();
         remoteLocationType.setSystem(systemType);
         remoteLocationType.setAuthentication(authenticationType);
         remoteLocationType.setFiles(arrayOfPathsRemote);
@@ -135,7 +134,7 @@ public class AesTransferWrapper extends TransferHandler implements FsAction {
         aesOrderType.setApplicationData(applicationDataType);
         aesOrderType.setRemoteLocation(remoteLocationType);
         aesOrderType.setLocalLocation(localLocationType);
-        submitRequest.setDefinition(objectToString());
+        submitRequest.setDefinition(serialize(aesOrderType));
 
     }
 
@@ -151,61 +150,58 @@ public class AesTransferWrapper extends TransferHandler implements FsAction {
         faspSoap = transfer201210.getTransfer201210Port();
         BindingProvider bindingProvider = (BindingProvider) faspSoap;
         bindingProvider.getRequestContext().put(BindingProvider.ENDPOINT_ADDRESS_PROPERTY,
-                "http://10.10.0.62:40001/services/soap/Transfer-201210");
+                TRANSFER_NAMESPACE);
     }
 
-    private void submit() throws FilterChangedErrorFault, JobFormatInvalidFault,
-            JobSubmissionErrorFault, JobTypeNotFoundFault , IOException{
+    private void submitTransferRequest() throws FilterChangedErrorFault, JobFormatInvalidFault,
+            JobSubmissionErrorFault, JobTypeNotFoundFault, IOException {
         createSubmitRequest();
         submitRequest.setType(requestType);
-        submitResponse = faspSoap.submit(submitRequest);
+        SubmitResponse response = faspSoap.submit(submitRequest);
+        transferJobId = response.getJobResult().getID();
     }
 
-    private String requestStatus () throws  FilterChangedErrorFault{
+    private String requestStatus() throws FilterChangedErrorFault {
         GetInfoRequest getInfoRequest = new GetInfoRequest();
-        GetInfoResponse getInfoResponse = new GetInfoResponse();
         FileTransferFilter fileTransferFilter = new FileTransferFilter();
-        fileTransferFilter.getJobId().add(submitResponse.getJobResult().getID());
-
+        fileTransferFilter.getJobId().add(transferJobId);
         getInfoRequest.setFileTransferFilter(fileTransferFilter);
-        getInfoResponse = faspSoap.getInfo(getInfoRequest);
+        GetInfoResponse getInfoResponse = faspSoap.getInfo(getInfoRequest);
         return getInfoResponse.getInfoResult().getSessionInfo().get(FILES_NUMBER).getStatus();
     }
 
-
-    private void abortTransfer() throws JobNotFoundFault{
+    private void abortTransfer() throws JobNotFoundFault {
         CancelRequest cancelRequest = new CancelRequest();
-        cancelRequest.setJobID(submitResponse.getJobResult().getID());
+        cancelRequest.setJobID(transferJobId);
         faspSoap.cancelJob(cancelRequest);
     }
 
 
-
-
-
-//remove later - used for testing-----------------------------------------------
+    //remove later - used for testing-----------------------------------------------
     public boolean isAbort() {
-        if(abortLoops==10){
+        if (abortLoops == 10) {
             return true;
-        }else{
+        } else {
             return false;
         }
     }
-    protected  void abortLoops(){
+
+    protected void abortLoops() {
         abortLoops++;
     }
+
     public int getProgress() {
-        //return (int) (getInfoResponse.getInfoResult().getSessionInfo().get(FILES_NUMBER).getBytesTransferred().floatValue() );
+//        return (int) (getInfoResponse.getInfoResult().getSessionInfo().get(FILES_NUMBER).getBytesTransferred().floatValue() );
         return 0;
     }
 
-    private String objectToString() throws IOException{
+    private String serialize(Serializable serializableDocument) throws IOException {
         StringWriter sw = new StringWriter();
-        try{
+        try {
             JAXBContext jaxbContext = JAXBContext.newInstance(AesOrderType.class);
             Marshaller jaxbMarshaller = jaxbContext.createMarshaller();
             jaxbMarshaller.setProperty(Marshaller.JAXB_FRAGMENT, true);
-            jaxbMarshaller.marshal(aesOrderType, sw);
+            jaxbMarshaller.marshal(serializableDocument, sw);
 
         } catch (JAXBException ex) {
             System.err.println(ex.getMessage());
